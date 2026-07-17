@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spin wheel</title>
+<style>
+  :root{
+    --bg:#F7F5F0; --card:#FFFFFF; --ink:#2C2C2A; --muted:#6B6A64;
+    --border:#E3E0D7; --pointer:#D85A30;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    font-family:"Segoe UI", system-ui, -apple-system, sans-serif;
+    background:var(--bg); color:var(--ink);
+    min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding:28px 16px; gap:16px;
+  }
+  h1{ font-size:24px; font-weight:600; letter-spacing:-0.02em; text-align:center; }
+  .sub{ font-size:14px; color:var(--muted); text-align:center; }
+  .badge{
+    font-size:14px; font-weight:600; padding:6px 16px; border-radius:16px;
+    background:#EAE7F9; color:#3C3489;
+  }
+  .wheel-wrap{ position:relative; width:min(380px, 90vw); aspect-ratio:1; }
+  .pointer{
+    position:absolute; top:-4px; left:50%; transform:translateX(-50%); z-index:2;
+    width:0; height:0; border-left:13px solid transparent;
+    border-right:13px solid transparent; border-top:22px solid var(--pointer);
+  }
+  svg{ width:100%; height:100%; }
+  #result{
+    min-height:34px; font-size:22px; font-weight:600; text-align:center; max-width:560px;
+  }
+  #picked{
+    min-height:26px; display:flex; flex-wrap:wrap; gap:8px;
+    justify-content:center; max-width:520px;
+  }
+  #picked span{ font-size:13px; padding:4px 12px; border-radius:14px; font-weight:500; }
+  .buttons{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  button{
+    font:inherit; font-size:15px; font-weight:500; cursor:pointer;
+    padding:10px 22px; border-radius:10px; border:1px solid var(--border);
+    background:var(--card); color:var(--ink);
+    transition:background .15s, transform .1s;
+  }
+  button:hover:not(:disabled){ background:#F0EDE5; }
+  button:active:not(:disabled){ transform:scale(0.97); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  button.primary{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.primary:hover:not(:disabled){ background:#444441; }
+  #setupHelp{
+    display:none; background:var(--card); border:1px solid var(--border);
+    border-radius:12px; padding:20px 24px; max-width:520px;
+  }
+  #setupHelp p{ font-size:14px; color:var(--muted); line-height:1.7; margin-bottom:10px; }
+  #setupHelp code{
+    background:#F0EDE5; padding:2px 6px; border-radius:5px;
+    font-size:12.5px; word-break:break-all;
+  }
+</style>
+</head>
+<body>
+  <h1 id="title">Spin wheel</h1>
+  <div class="badge" id="purposeBadge" style="display:none;"></div>
+  <p class="sub" id="status"></p>
+
+  <div id="setupHelp">
+    <p><strong>No names provided.</strong> Pass names (and an optional purpose) in the URL, for example:</p>
+    <p><code>spin-wheel-pro.html?names=Ann,Ben,Cara&amp;purpose=AI Coffee chat</code></p>
+    <p>Spaces in the purpose are fine; the browser encodes them automatically.</p>
+  </div>
+
+  <div class="wheel-wrap" id="wheelWrap" style="display:none;">
+    <div class="pointer"></div>
+    <svg viewBox="0 0 340 340">
+      <g id="rotor" transform="rotate(0 170 170)"></g>
+      <circle cx="170" cy="170" r="30" fill="#FFFFFF" stroke="#C9C6BC" stroke-width="1"/>
+      <circle cx="170" cy="170" r="163" fill="none" stroke="#C9C6BC" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div id="result"></div>
+  <div id="picked"></div>
+
+  <div class="buttons" id="controls" style="display:none;">
+    <button class="primary" id="startBtn">Start spin</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="resetBtn">Reset wheel</button>
+  </div>
+
+<script>
+(function(){
+var FILLS = ["#CECBF6","#9FE1CB","#F5C4B3","#F4C0D1","#B5D4F4","#FAC775","#D3D1C7","#F7C1C1","#C0DD97","#ED93B1"];
+var TEXTS = ["#3C3489","#085041","#712B13","#72243E","#0C447C","#633806","#444441","#791F1F","#27500A","#72243E"];
+var CRUISE = 7, DECEL_MS = 7000, TURNS = 4, cx = 170, cy = 170, r = 160;
+
+/* ---------- Purpose-themed announcement sets ---------- */
+var THEMES = [
+  { match:/note|minute|scribe|recap/i, emoji:"\uD83D\uDCDD", phrases:[
+      "{n}, grab your pen \u2014 you're today's scribe!",
+      "The wheel says {n} takes the notes!",
+      "History will remember this meeting, {n}... because you're writing it down!",
+      "Congrats {n}, official minute-keeper of the day!",
+      "{n}, your keyboard is the chosen one \u2014 notes duty!"
+  ]},
+  { match:/coffee|chat|watercooler|social/i, emoji:"\u2615", phrases:[
+      "{n}, coffee's on you \u2014 time for a chat!",
+      "The beans have spoken \u2014 {n}, let's talk!",
+      "{n}, you're brewing today's conversation!",
+      "Espresso yourself, {n} \u2014 it's your coffee chat!",
+      "{n}, pull up a mug \u2014 the floor is yours!"
+  ]},
+  { match:/status|standup|stand-up|update|progress/i, emoji:"\uD83C\uDFA4", phrases:[
+      "{n}, the stage is yours \u2014 status time!",
+      "The wheel demands an update, {n}!",
+      "{n}, tell us what's shipping!",
+      "Standup spotlight on {n}!",
+      "{n}, give us the good, the bad, and the blocked!"
+  ]},
+  { match:/demo|showcase|show and tell|show-and-tell/i, emoji:"\uD83C\uDFAC", phrases:[
+      "{n}, roll the demo \u2014 you're on!",
+      "Lights, camera, {n} \u2014 show us what you've got!",
+      "The wheel wants a show, {n}!",
+      "{n}, time to steal the spotlight with your demo!"
+  ]},
+  { match:/retro|review/i, emoji:"\uD83E\uDE9E", phrases:[
+      "{n}, kick off the retro \u2014 what went well?",
+      "The wheel of reflection chooses {n}!",
+      "{n}, your hot take goes first!",
+      "Retro time, {n} \u2014 no holding back!"
+  ]}
+];
+var GENERIC = { emoji:"\uD83C\uDF89", phrases:[
+    "{n}, you're up \u2014 {p} awaits!",
+    "The wheel picked {n} for {p}!",
+    "Destiny says: {n} does {p}!",
+    "Spotlight's on {n} \u2014 time for {p}!",
+    "{n}, the honor of {p} is all yours!"
+]};
+var PLAIN = { emoji:"\uD83C\uDF89", phrases:[
+    "{n}, the mic is yours!",
+    "The wheel has spoken \u2014 {n}, take it away!",
+    "Spotlight's on you, {n}!",
+    "{n}, the floor is all yours!",
+    "Drumroll... it's {n}!"
+]};
+
+var params = new URLSearchParams(location.search);
+var PURPOSE = (params.get("purpose") || "").trim();
+var theme = PLAIN;
+if (PURPOSE){
+  theme = GENERIC;
+  for (var t = 0; t < THEMES.length; t++){
+    if (THEMES[t].match.test(PURPOSE)){ theme = THEMES[t]; break; }
+  }
+}
+
+var NAMES = (decodeURIComponent(params.get("names") || ""))
+  .split(/,|\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+
+var rotor = document.getElementById("rotor");
+var startBtn = document.getElementById("startBtn");
+var stopBtn = document.getElementById("stopBtn");
+var resetBtn = document.getElementById("resetBtn");
+var result = document.getElementById("result");
+var pickedRow = document.getElementById("picked");
+var statusEl = document.getElementById("status");
+
+if (PURPOSE){
+  document.getElementById("title").textContent = theme.emoji + " " + PURPOSE;
+  document.title = PURPOSE + " - spin wheel";
+  var badge = document.getElementById("purposeBadge");
+  badge.textContent = "Who's next for: " + PURPOSE;
+  badge.style.display = "inline-block";
+} else {
+  document.getElementById("title").textContent = "Spin wheel";
+}
+
+if (NAMES.length < 2){
+  document.getElementById("setupHelp").style.display = "block";
+} else {
+  document.getElementById("wheelWrap").style.display = "block";
+  document.getElementById("controls").style.display = "flex";
+  statusEl.textContent = NAMES.length + " names in the running";
+}
+
+var active = [], picked = [], pool = [];
+var angle = 0, spinning = false, stopping = false, raf = null, winPos = null, decel = null;
+
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function announce(name){
+  if (!pool.length) pool = theme.phrases.map(function(_,i){ return i; });
+  var p = pool.splice(Math.floor(Math.random()*pool.length), 1)[0];
+  return theme.emoji + " " + theme.phrases[p].replace("{n}", name).replace("{p}", PURPOSE);
+}
+function drawPicked(){
+  pickedRow.innerHTML = picked.map(function(i, idx){
+    return '<span style="background:'+FILLS[i%FILLS.length]+';color:'+TEXTS[i%TEXTS.length]+';">'+(idx+1)+'. '+esc(NAMES[i])+'</span>';
+  }).join("");
+}
+function drawWheel(){
+  var n = active.length;
+  if (!n){ rotor.innerHTML = ""; return; }
+  if (n === 1){
+    var i = active[0];
+    rotor.innerHTML = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+FILLS[i%FILLS.length]+'"/><text x="'+cx+'" y="'+(cy-70)+'" text-anchor="middle" font-size="18" font-weight="600" fill="'+TEXTS[i%TEXTS.length]+'">'+esc(NAMES[i])+'</text>';
+    return;
+  }
+  var seg = 360/n, fs = n>10?12:(n>8?14:16), parts = "";
+  for (var k=0;k<n;k++){
+    var i2 = active[k];
+    var a0 = (k*seg-90)*Math.PI/180, a1 = ((k+1)*seg-90)*Math.PI/180;
+    var x0 = cx+r*Math.cos(a0), y0 = cy+r*Math.sin(a0);
+    var x1 = cx+r*Math.cos(a1), y1 = cy+r*Math.sin(a1);
+    var big = seg>180?1:0;
+    parts += '<path d="M'+cx+' '+cy+' L'+x0.toFixed(1)+' '+y0.toFixed(1)+' A'+r+' '+r+' 0 '+big+' 1 '+x1.toFixed(1)+' '+y1.toFixed(1)+' Z" fill="'+FILLS[i2%FILLS.length]+'" stroke="#FFFFFF" stroke-width="2"/>';
+    var mid = (k*seg+seg/2-90)*Math.PI/180;
+    var tx = cx+(r*0.62)*Math.cos(mid), ty = cy+(r*0.62)*Math.sin(mid);
+    parts += '<text x="'+tx.toFixed(1)+'" y="'+ty.toFixed(1)+'" transform="rotate('+(k*seg+seg/2)+' '+tx.toFixed(1)+' '+ty.toFixed(1)+')" text-anchor="middle" dominant-baseline="middle" font-size="'+fs+'" font-weight="600" fill="'+TEXTS[i2%TEXTS.length]+'">'+esc(NAMES[i2])+'</text>';
+  }
+  rotor.innerHTML = parts;
+}
+function setAngle(a){
+  angle = a;
+  rotor.setAttribute("transform","rotate("+(((a%360)+360)%360)+" 170 170)");
+}
+function frame(ts){
+  if (stopping && decel){
+    var t = Math.min((ts-decel.t0)/decel.dur, 1);
+    setAngle(decel.start + decel.dist*(1-Math.pow(1-t,4)));
+    if (t>=1){ finish(); return; }
+  } else {
+    setAngle(angle + CRUISE);
+  }
+  raf = requestAnimationFrame(frame);
+}
+function finish(){
+  spinning = stopping = false; decel = null;
+  var idx = active[winPos];
+  result.textContent = announce(NAMES[idx]);
+  picked.push(idx);
+  active.splice(winPos,1);
+  winPos = null;
+  drawPicked();
+  setTimeout(function(){
+    setAngle(0); drawWheel();
+    if (!active.length){
+      result.textContent += " That's a wrap \u2014 everyone's had a turn!";
+      startBtn.disabled = true;
+    } else startBtn.disabled = false;
+    stopBtn.disabled = true;
+  },1500);
+}
+startBtn.onclick = function(){
+  if (spinning || !active.length) return;
+  if (active.length === 1){
+    var i = active[0];
+    result.textContent = announce(NAMES[i]) + " That's a wrap \u2014 everyone's had a turn!";
+    picked.push(i); active = [];
+    drawPicked(); drawWheel();
+    startBtn.disabled = true;
+    return;
+  }
+  spinning = true; stopping = false;
+  result.textContent = "";
+  startBtn.disabled = true; stopBtn.disabled = false;
+  if (raf) cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(frame);
+};
+stopBtn.onclick = function(){
+  if (!spinning || stopping) return;
+  stopping = true; stopBtn.disabled = true;
+  result.textContent = "And the wheel says...";
+  var n = active.length, seg = 360/n;
+  winPos = Math.floor(Math.random()*n);
+  var jitter = (Math.random()*0.5-0.25)*seg;
+  var target = (360 - (winPos*seg + seg/2 + jitter) + 360) % 360;
+  var cur = ((angle%360)+360)%360;
+  decel = { start: angle, dist: ((target-cur+360)%360) + 360*TURNS, dur: DECEL_MS, t0: performance.now() };
+};
+function resetAll(){
+  if (raf) cancelAnimationFrame(raf);
+  spinning = stopping = false; decel = null; winPos = null;
+  active = NAMES.map(function(_,i){ return i; });
+  picked = []; pool = [];
+  setAngle(0); result.textContent = "";
+  drawPicked(); drawWheel();
+  startBtn.disabled = false; stopBtn.disabled = true;
+}
+resetBtn.onclick = resetAll;
+if (NAMES.length >= 2) resetAll();
+})();
+</script>
+
+<!--
+USAGE
+=====
+This page is driven entirely by URL parameters:
+
+  spin-wheel-pro.html?names=Ann,Ben,Cara&purpose=AI Coffee chat
+
+  names    (required)  comma-separated list, at least 2 names
+  purpose  (optional)  what the picked person will do; shown as the
+                       page title and woven into the announcements
+
+The announcement style adapts to the purpose automatically:
+  - contains "note/minutes/scribe"  -> note-taking phrases
+  - contains "coffee/chat"          -> coffee chat phrases
+  - contains "status/standup/update"-> status update phrases
+  - contains "demo/showcase"        -> demo phrases
+  - contains "retro/review"         -> retrospective phrases
+  - anything else                   -> generic phrases that include
+                                       the purpose text
+  - no purpose given                -> classic neutral phrases
+-->
+</body>
+</html>
