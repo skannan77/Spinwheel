@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watercooler spin wheel</title>
+<style>
+  :root{
+    --bg:#F7F5F0; --card:#FFFFFF; --ink:#2C2C2A; --muted:#6B6A64;
+    --border:#E3E0D7; --pointer:#D85A30;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    font-family:"Segoe UI", system-ui, -apple-system, sans-serif;
+    background:var(--bg); color:var(--ink);
+    min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding:32px 16px; gap:20px;
+  }
+  h1{ font-size:24px; font-weight:600; letter-spacing:-0.02em; }
+  .sub{ font-size:14px; color:var(--muted); }
+  .wheel-wrap{ position:relative; width:min(380px, 90vw); aspect-ratio:1; }
+  .pointer{
+    position:absolute; top:-4px; left:50%; transform:translateX(-50%); z-index:2;
+    width:0; height:0; border-left:13px solid transparent;
+    border-right:13px solid transparent; border-top:22px solid var(--pointer);
+  }
+  svg{ width:100%; height:100%; }
+  #result{
+    min-height:34px; font-size:22px; font-weight:600; text-align:center;
+  }
+  #picked{
+    min-height:26px; display:flex; flex-wrap:wrap; gap:8px;
+    justify-content:center; max-width:520px;
+  }
+  #picked span{
+    font-size:13px; padding:4px 12px; border-radius:14px; font-weight:500;
+  }
+  .buttons{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  button{
+    font:inherit; font-size:15px; font-weight:500; cursor:pointer;
+    padding:10px 22px; border-radius:10px; border:1px solid var(--border);
+    background:var(--card); color:var(--ink);
+    transition:background .15s, transform .1s;
+  }
+  button:hover:not(:disabled){ background:#F0EDE5; }
+  button:active:not(:disabled){ transform:scale(0.97); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  button.primary{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.primary:hover:not(:disabled){ background:#444441; }
+  #fileFallback{
+    display:none; background:var(--card); border:1px solid var(--border);
+    border-radius:12px; padding:20px 24px; max-width:460px; text-align:center;
+  }
+  #fileFallback p{ font-size:14px; color:var(--muted); margin-bottom:14px; line-height:1.6; }
+  input[type=file]{ display:none; }
+</style>
+</head>
+<body>
+  <h1>Watercooler spin wheel</h1>
+  <p class="sub" id="status">Loading names…</p>
+
+  <div id="fileFallback">
+    <p>Couldn't auto-load <strong>names.txt</strong> — your browser blocks reading local files when the page is opened directly. Pick the file manually, or run a tiny local server (see notes at the bottom of this file's source).</p>
+    <button class="primary" id="pickFileBtn">Choose names.txt</button>
+    <input type="file" id="fileInput" accept=".txt">
+  </div>
+
+  <div class="wheel-wrap" id="wheelWrap" style="display:none;">
+    <div class="pointer"></div>
+    <svg viewBox="0 0 340 340">
+      <g id="rotor" transform="rotate(0 170 170)"></g>
+      <circle cx="170" cy="170" r="30" fill="#FFFFFF" stroke="#C9C6BC" stroke-width="1"/>
+      <circle cx="170" cy="170" r="163" fill="none" stroke="#C9C6BC" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div id="result"></div>
+  <div id="picked"></div>
+
+  <div class="buttons" id="controls" style="display:none;">
+    <button class="primary" id="startBtn">Start spin</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="resetBtn">Reset wheel</button>
+  </div>
+
+<script>
+const FILLS = ["#CECBF6","#9FE1CB","#F5C4B3","#F4C0D1","#B5D4F4","#FAC775","#D3D1C7","#F7C1C1","#C0DD97","#ED93B1"];
+const TEXTS = ["#3C3489","#085041","#712B13","#72243E","#0C447C","#633806","#444441","#791F1F","#27500A","#72243E"];
+const PHRASES = [
+  "{name}, the mic is yours!",
+  "The wheel has spoken \u2014 {name}, take it away!",
+  "{name}, grab a coffee and share your story!",
+  "Spotlight's on you, {name}!",
+  "Destiny picked {name} \u2014 no pressure!",
+  "{name}, the floor is all yours!",
+  "Drumroll... it's {name}!"
+];
+const CRUISE = 7;
+const DECEL_MS = 7000;
+const EXTRA_TURNS = 4;
+const cx=170, cy=170, r=160;
+
+let allNames = [];
+let active = [];
+let pickedOrder = [];
+let phrasePool = [];
+let angle = 0, spinning = false, stopping = false, raf = null;
+let pendingWinnerPos = null;
+let decel = null;
+
+const rotor = document.getElementById("rotor");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const resetBtn = document.getElementById("resetBtn");
+const result = document.getElementById("result");
+const pickedRow = document.getElementById("picked");
+const statusEl = document.getElementById("status");
+
+function parseNames(text){
+  return text.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
+}
+
+function init(names){
+  allNames = names;
+  document.getElementById("fileFallback").style.display = "none";
+  document.getElementById("wheelWrap").style.display = "block";
+  document.getElementById("controls").style.display = "flex";
+  statusEl.textContent = names.length + " names loaded from names.txt";
+  resetAll();
+}
+
+fetch("names.txt", {cache:"no-store"})
+  .then(res => { if(!res.ok) throw new Error("not found"); return res.text(); })
+  .then(text => {
+    const names = parseNames(text);
+    if (names.length < 2) throw new Error("need at least 2 names");
+    init(names);
+  })
+  .catch(() => {
+    statusEl.textContent = "";
+    document.getElementById("fileFallback").style.display = "block";
+  });
+
+document.getElementById("pickFileBtn").addEventListener("click", () => {
+  document.getElementById("fileInput").click();
+});
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const names = parseNames(reader.result);
+    if (names.length < 2){ alert("The file needs at least 2 names (one per line)."); return; }
+    init(names);
+  };
+  reader.readAsText(f);
+});
+
+function announce(name){
+  if (phrasePool.length === 0) phrasePool = PHRASES.map((_,i)=>i);
+  const p = phrasePool.splice(Math.floor(Math.random()*phrasePool.length), 1)[0];
+  return PHRASES[p].replace("{name}", name);
+}
+
+function drawWheel(){
+  const n = active.length;
+  if (n === 0){ rotor.innerHTML = ""; return; }
+  if (n === 1){
+    const i = active[0];
+    rotor.innerHTML = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+FILLS[i % FILLS.length]+'"/>' +
+      '<text x="'+cx+'" y="'+(cy-70)+'" text-anchor="middle" font-size="18" font-weight="600" fill="'+TEXTS[i % TEXTS.length]+'">'+esc(allNames[i])+'</text>';
+    return;
+  }
+  const seg = 360/n;
+  const fontSize = n > 10 ? 12 : n > 8 ? 14 : 16;
+  let parts = "";
+  for (let k=0;k<n;k++){
+    const i = active[k];
+    const a0 = (k*seg-90)*Math.PI/180, a1 = ((k+1)*seg-90)*Math.PI/180;
+    const x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
+    const x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+    const large = seg > 180 ? 1 : 0;
+    parts += '<path d="M'+cx+' '+cy+' L'+x0.toFixed(1)+' '+y0.toFixed(1)+' A'+r+' '+r+' 0 '+large+' 1 '+x1.toFixed(1)+' '+y1.toFixed(1)+' Z" fill="'+FILLS[i % FILLS.length]+'" stroke="#FFFFFF" stroke-width="2"/>';
+    const mid = (k*seg + seg/2 - 90)*Math.PI/180;
+    const tx = cx + (r*0.62)*Math.cos(mid), ty = cy + (r*0.62)*Math.sin(mid);
+    const rot = k*seg + seg/2;
+    parts += '<text x="'+tx.toFixed(1)+'" y="'+ty.toFixed(1)+'" transform="rotate('+rot+' '+tx.toFixed(1)+' '+ty.toFixed(1)+')" text-anchor="middle" dominant-baseline="middle" font-size="'+fontSize+'" font-weight="600" fill="'+TEXTS[i % TEXTS.length]+'">'+esc(allNames[i])+'</text>';
+  }
+  rotor.innerHTML = parts;
+}
+
+function esc(s){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function drawPicked(){
+  pickedRow.innerHTML = pickedOrder.map(function(i, idx){
+    return '<span style="background:'+FILLS[i % FILLS.length]+';color:'+TEXTS[i % TEXTS.length]+';">'+(idx+1)+'. '+esc(allNames[i])+'</span>';
+  }).join("");
+}
+
+function setAngle(a){
+  angle = a;
+  rotor.setAttribute("transform","rotate("+(((a%360)+360)%360)+" 170 170)");
+}
+
+function frame(ts){
+  if (stopping && decel){
+    const t = Math.min((ts - decel.t0) / decel.dur, 1);
+    const eased = 1 - Math.pow(1 - t, 4);
+    setAngle(decel.start + decel.dist * eased);
+    if (t >= 1){ finish(); return; }
+  } else {
+    setAngle(angle + CRUISE);
+  }
+  raf = requestAnimationFrame(frame);
+}
+
+function finish(){
+  spinning = false; stopping = false; decel = null;
+  const idx = active[pendingWinnerPos];
+  result.textContent = announce(allNames[idx]);
+  pickedOrder.push(idx);
+  active.splice(pendingWinnerPos, 1);
+  pendingWinnerPos = null;
+  drawPicked();
+  setTimeout(function(){
+    setAngle(0);
+    drawWheel();
+    if (active.length === 0){
+      result.textContent += " That's a wrap \u2014 everyone's had their moment!";
+      startBtn.disabled = true;
+    } else {
+      startBtn.disabled = false;
+    }
+    stopBtn.disabled = true;
+  }, 1500);
+}
+
+startBtn.addEventListener("click", function(){
+  if (spinning || active.length === 0) return;
+  if (active.length === 1){
+    const i = active[0];
+    result.textContent = announce(allNames[i]) + " That's a wrap \u2014 everyone's had their moment!";
+    pickedOrder.push(i);
+    active = [];
+    drawPicked();
+    drawWheel();
+    startBtn.disabled = true;
+    return;
+  }
+  spinning = true; stopping = false;
+  result.textContent = "";
+  startBtn.disabled = true; stopBtn.disabled = false;
+  if (raf) cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(frame);
+});
+
+stopBtn.addEventListener("click", function(){
+  if (!spinning || stopping) return;
+  stopping = true;
+  stopBtn.disabled = true;
+  result.textContent = "And the wheel says...";
+  const n = active.length;
+  const seg = 360/n;
+  pendingWinnerPos = Math.floor(Math.random()*n);
+  const jitter = (Math.random()*0.5 - 0.25) * seg;
+  const winnerCenter = pendingWinnerPos*seg + seg/2 + jitter;
+  const desiredNorm = (360 - winnerCenter + 360) % 360;
+  const current = ((angle % 360) + 360) % 360;
+  const delta = (desiredNorm - current + 360) % 360;
+  decel = { start: angle, dist: delta + 360*EXTRA_TURNS, dur: DECEL_MS, t0: performance.now() };
+});
+
+function resetAll(){
+  if (raf) cancelAnimationFrame(raf);
+  spinning = false; stopping = false; decel = null; pendingWinnerPos = null;
+  active = allNames.map(function(_,i){ return i; });
+  pickedOrder = [];
+  phrasePool = [];
+  setAngle(0);
+  result.textContent = "";
+  drawPicked();
+  drawWheel();
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+}
+resetBtn.addEventListener("click", resetAll);
+</script>
+
+<!--
+HOW TO USE
+==========
+1. Put this file and a "names.txt" file in the same folder.
+2. names.txt should have one name per line, for example:
+     Kannan
+     Satya
+     Kalyani
+3. Open the page:
+
+   OPTION A (recommended) - run a tiny local server so names.txt loads
+   automatically. In a terminal, inside this folder, run one of:
+       python -m http.server 8000
+       npx serve
+   Then open http://localhost:8000/spin-wheel.html
+
+   OPTION B - just double-click spin-wheel.html. Browsers block reading
+   local files directly, so you'll see a "Choose names.txt" button
+   instead - pick your file once and the wheel loads.
+
+Edit names.txt any time; refresh the page to pick up changes.
+-->
+</body>
+</html>
