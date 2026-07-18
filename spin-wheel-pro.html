@@ -207,7 +207,8 @@ function drawWheel(){
     rotor.innerHTML = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+FILLS[i%FILLS.length]+'"/><text x="'+cx+'" y="'+(cy-70)+'" text-anchor="middle" font-size="18" font-weight="600" fill="'+TEXTS[i%TEXTS.length]+'">'+esc(NAMES[i])+'</text>';
     return;
   }
-  var seg = 360/n, fs = n>10?12:(n>8?14:16), parts = "";
+  var seg = 360/n, radial = n > 8, parts = "";
+  var fs = radial ? (n>18?11.5:(n>13?12.5:13.5)) : 16;
   for (var k=0;k<n;k++){
     var i2 = active[k];
     var a0 = (k*seg-90)*Math.PI/180, a1 = ((k+1)*seg-90)*Math.PI/180;
@@ -215,9 +216,19 @@ function drawWheel(){
     var x1 = cx+r*Math.cos(a1), y1 = cy+r*Math.sin(a1);
     var big = seg>180?1:0;
     parts += '<path d="M'+cx+' '+cy+' L'+x0.toFixed(1)+' '+y0.toFixed(1)+' A'+r+' '+r+' 0 '+big+' 1 '+x1.toFixed(1)+' '+y1.toFixed(1)+' Z" fill="'+FILLS[i2%FILLS.length]+'" stroke="#FFFFFF" stroke-width="2"/>';
-    var mid = (k*seg+seg/2-90)*Math.PI/180;
-    var tx = cx+(r*0.62)*Math.cos(mid), ty = cy+(r*0.62)*Math.sin(mid);
-    parts += '<text x="'+tx.toFixed(1)+'" y="'+ty.toFixed(1)+'" transform="rotate('+(k*seg+seg/2)+' '+tx.toFixed(1)+' '+ty.toFixed(1)+')" text-anchor="middle" dominant-baseline="middle" font-size="'+fs+'" font-weight="600" fill="'+TEXTS[i2%TEXTS.length]+'">'+esc(NAMES[i2])+'</text>';
+    var midDeg = k*seg + seg/2;
+    var mid = (midDeg-90)*Math.PI/180;
+    if (radial){
+      // Spoke layout: text runs along the radius, anchored near the rim, reading outward.
+      var tx = cx+(r*0.95)*Math.cos(mid), ty = cy+(r*0.95)*Math.sin(mid);
+      var rot = midDeg - 90, anchor = "end";
+      var norm = ((rot % 360) + 360) % 360;
+      if (norm > 90 && norm < 270){ rot += 180; anchor = "start"; } // flip left-side labels upright
+      parts += '<text x="'+tx.toFixed(1)+'" y="'+ty.toFixed(1)+'" transform="rotate('+rot.toFixed(1)+' '+tx.toFixed(1)+' '+ty.toFixed(1)+')" text-anchor="'+anchor+'" dominant-baseline="middle" font-size="'+fs+'" font-weight="600" fill="'+TEXTS[i2%TEXTS.length]+'">'+esc(NAMES[i2])+'</text>';
+    } else {
+      var tx2 = cx+(r*0.62)*Math.cos(mid), ty2 = cy+(r*0.62)*Math.sin(mid);
+      parts += '<text x="'+tx2.toFixed(1)+'" y="'+ty2.toFixed(1)+'" transform="rotate('+midDeg+' '+tx2.toFixed(1)+' '+ty2.toFixed(1)+')" text-anchor="middle" dominant-baseline="middle" font-size="'+fs+'" font-weight="600" fill="'+TEXTS[i2%TEXTS.length]+'">'+esc(NAMES[i2])+'</text>';
+    }
   }
   rotor.innerHTML = parts;
 }
