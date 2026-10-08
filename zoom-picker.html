@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Standup — Random Scribe Picker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono&display=swap');
+
+  :root{
+    --app:#1a1a1e;
+    --app-2:#242429;
+    --tile:#2b2b31;
+    --tile-2:#34343b;
+    --bar:#111114;
+    --ink:#f2f2f5;
+    --dust:#9a9aa6;
+    --live:#3fbf7f;
+    --mute:#e8574a;
+    --pick:#ffb43f;
+    --ring:#2d8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--app);color:var(--ink);font-family:'Inter',sans-serif;min-height:100vh;
+    display:flex;flex-direction:column;align-items:center;padding:20px 14px 40px;overflow-x:hidden;
+  }
+  header{text-align:center;margin-bottom:8px}
+  .eyebrow{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--dust)}
+  h1{font-size:clamp(26px,5.5vw,42px);font-weight:700;letter-spacing:-.02em}
+  h1 span{color:var(--ring)}
+  .sub{color:var(--dust);font-size:14px;margin-top:2px}
+
+  .meeting{
+    width:min(760px,96vw);background:var(--app-2);border-radius:16px;padding:14px;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);border:1px solid #34343b;
+  }
+  .topbar{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;color:var(--dust);font-size:13px}
+  .rec{display:flex;align-items:center;gap:6px}
+  .rec .dot{width:9px;height:9px;border-radius:50%;background:var(--mute);box-shadow:0 0 8px var(--mute);animation:blink 1.4s infinite}
+  @keyframes blink{50%{opacity:.35}}
+  .topbar .clock{margin-left:auto;font-family:'Space Mono',monospace}
+
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .tile{
+    position:relative;aspect-ratio:4/3;border-radius:12px;overflow:hidden;
+    background:var(--tile);border:3px solid transparent;transition:border-color .2s,transform .25s,box-shadow .25s;
+  }
+  .avatar{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .face{width:52px;height:52px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff;transition:transform .3s}
+  .namebar{
+    position:absolute;left:6px;bottom:6px;display:flex;align-items:center;gap:5px;
+    background:rgba(0,0,0,.55);padding:3px 8px;border-radius:7px;font-size:12px;font-weight:500;max-width:calc(100% - 12px);
+  }
+  .namebar .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mic{width:13px;height:13px;flex:0 0 auto;position:relative}
+  .mic svg{width:13px;height:13px;display:block}
+  .badge{position:absolute;top:6px;right:6px;font-size:10px;font-family:'Space Mono',monospace;background:rgba(0,0,0,.5);padding:2px 6px;border-radius:6px;color:var(--dust);opacity:0;transition:opacity .2s}
+  .tile.talking{border-color:var(--live);box-shadow:0 0 0 1px var(--live),0 0 16px rgba(63,191,127,.35)}
+  .tile.talking .face{animation:bob .5s ease-in-out infinite alternate}
+  @keyframes bob{to{transform:scale(1.06)}}
+
+  .tile.scan{border-color:var(--ring);box-shadow:0 0 18px rgba(45,140,255,.5);transform:scale(1.03)}
+  .tile.picked{border-color:var(--pick);box-shadow:0 0 0 2px var(--pick),0 0 30px rgba(255,180,63,.6);transform:scale(1.06);z-index:3}
+  .tile.picked .badge{opacity:1;color:var(--pick);background:rgba(0,0,0,.65)}
+  .tile.dim{opacity:.4;filter:saturate(.5)}
+  .reaction{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);font-size:34px;z-index:4;
+    transition:transform .4s cubic-bezier(.34,1.56,.64,1);
+  }
+  .tile.picked .reaction{transform:translate(-50%,-140%) scale(1)}
+
+  .scribe{width:min(760px,96vw);margin-top:16px;text-align:center;min-height:54px;display:flex;align-items:center;justify-content:center}
+  .scribe .msg{
+    opacity:0;transform:translateY(10px) scale(.96);transition:opacity .5s,transform .5s cubic-bezier(.2,.9,.3,1.2);
+    font-size:clamp(15px,3.2vw,21px);font-weight:500;line-height:1.4;padding:13px 22px;border-radius:14px;
+    background:var(--tile-2);border:1px solid var(--pick);box-shadow:0 8px 24px rgba(0,0,0,.4)
+  }
+  .scribe .msg.show{opacity:1;transform:translateY(0) scale(1)}
+  .scribe .msg b{color:var(--pick);font-weight:700}
+
+  .controlbar{
+    width:min(760px,96vw);margin-top:14px;background:var(--bar);border-radius:14px;
+    padding:12px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;
+    border:1px solid #2a2a30;
+  }
+  .pick{
+    background:var(--ring);color:#fff;border:none;border-radius:10px;padding:13px 32px;
+    font-family:'Inter';font-weight:600;font-size:15px;cursor:pointer;transition:transform .1s,background .15s;
+    box-shadow:0 4px 14px rgba(45,140,255,.4)
+  }
+  .pick:hover{background:#1f7be8}
+  .pick:active{transform:scale(.96)}
+  .pick:disabled{opacity:.5;cursor:not-allowed}
+  .opts{display:flex;gap:14px;align-items:center;color:var(--dust);font-size:13px;flex-wrap:wrap;justify-content:center}
+  label.chk{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .count{font-family:'Space Mono',monospace;color:var(--live)}
+
+  .panel{width:min(760px,96vw);display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  textarea{flex:1;min-width:220px;min-height:64px;resize:vertical;background:var(--tile);border:1px solid #3a3a42;border-radius:10px;color:var(--ink);padding:12px;font-family:'Space Mono',monospace;font-size:13px}
+  textarea:focus{outline:none;border-color:var(--ring)}
+  .side{display:flex;flex-direction:column;gap:8px;justify-content:center}
+  button.act{background:var(--tile);border:1px solid #3a3a42;border-radius:10px;color:var(--ink);padding:10px 16px;font-family:'Inter';font-weight:500;cursor:pointer;font-size:13px;transition:all .15s;white-space:nowrap}
+  button.act:hover{border-color:var(--ring);color:#7fb4ff}
+</style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Random Picker</div>
+    <h1>The <span>Standup</span></h1>
+    <div class="sub">Everyone's on the call. Spin the spotlight to pick the scribe.</div>
+  </header>
+
+  <div class="meeting">
+    <div class="topbar">
+      <span class="rec"><span class="dot"></span>Recording</span>
+      <span id="mtitle">Daily Standup</span>
+      <span class="clock" id="clock">00:00</span>
+    </div>
+    <div class="gallery" id="gallery"></div>
+  </div>
+
+  <div class="scribe"><div class="msg" id="scribe"></div></div>
+
+  <div class="controlbar">
+    <button class="pick" id="pick">🎯 Pick the scribe</button>
+    <div class="opts">
+      <span>On the call: <span class="count" id="count">0</span></span>
+      <label class="chk"><input type="checkbox" id="remove"> Drop after picking</label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <textarea id="names" placeholder="One name per line...">Ava
+Liam
+Noah
+Emma
+Oliver
+Sophia
+Mason
+Isabella
+Ethan
+Mia</textarea>
+    <div class="side">
+      <button class="act" id="load">Load names</button>
+      <button class="act" id="reset">Reset</button>
+    </div>
+  </div>
+
+<script>
+const gallery=document.getElementById('gallery'),pickBtn=document.getElementById('pick');
+const countEl=document.getElementById('count'),removeChk=document.getElementById('remove'),scribeEl=document.getElementById('scribe');
+
+const BG=['#5b8def','#e8574a','#3fbf8f','#c264d6','#f2a134','#4fb0c9','#e8657f','#7c6bd6','#d98c3f','#4a9d8e'];
+const REACTIONS=['🙋','😅','✍️','👀','🫡','😳','🎉'];
+const SCRIBE_MSGS=[
+  "{n}, grab your pen — you're today's scribe!",
+  "The call says {n} takes the notes!",
+  "History will remember this meeting, {n}... because you're writing it down!",
+  "Congrats {n}, official minute-keeper of the day!",
+  "{n}, your keyboard is the chosen one — notes duty!",
+  "{n}, today the meeting speaks through your fingertips!",
+  "Breaking news: {n} has been elected Chief Documentation Officer!",
+  "{n}, if it's not in your notes, it never happened!",
+  "The ink is strong with you, {n} — scribe mode: ON!",
+  "{n}, warm up those typing fingers — it's minutes o'clock!",
+  "Fate has spoken, {n} — the action items are yours to capture!",
+  "{n}, you're the official memory of this meeting. No pressure!",
+  "All hail {n}, keeper of the sacred meeting notes!",
+  "{n}, channel your inner court reporter — every word counts!",
+  "Plot twist: {n} is today's narrator. Write it all down!"
+];
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function showScribe(name){
+  const tpl=SCRIBE_MSGS[Math.floor(Math.random()*SCRIBE_MSGS.length)];
+  scribeEl.innerHTML=escapeHtml(tpl).split('{n}').join('<b>'+escapeHtml(name)+'</b>');
+  scribeEl.classList.remove('show');void scribeEl.offsetWidth;scribeEl.classList.add('show');
+}
+function hash(str){let x=0;for(let i=0;i<str.length;i++)x=(x*31+str.charCodeAt(i))>>>0;return x;}
+function initials(name){const p=name.trim().split(/\s+/);return((p[0]?.[0]||'')+(p[1]?.[0]||'')).toUpperCase()||name[0].toUpperCase();}
+
+const micOn=`<svg viewBox="0 0 24 24" fill="none" stroke="#3fbf7f" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>`;
+const micOff=`<svg viewBox="0 0 24 24" fill="none" stroke="#e8574a" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/><line x1="4" y1="4" x2="20" y2="20"/></svg>`;
+
+let tiles=[],picking=false,talkTimer;
+
+function build(){
+  const raw=document.getElementById('names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  gallery.innerHTML='';tiles=[];
+  raw.forEach(name=>{
+    const seed=hash(name);
+    const bg=BG[seed%BG.length];
+    const muted=(seed>>4)%3===0; // some people muted
+    const el=document.createElement('div');el.className='tile';
+    el.innerHTML=`
+      <div class="avatar"><div class="face" style="background:${bg}">${escapeHtml(initials(name))}</div></div>
+      <div class="reaction"></div>
+      <div class="badge">SCRIBE</div>
+      <div class="namebar"><span class="mic">${muted?micOff:micOn}</span><span class="nm">${escapeHtml(name)}</span></div>`;
+    gallery.appendChild(el);
+    tiles.push({name,el,muted});
+  });
+  countEl.textContent=tiles.length;
+  scribeEl.classList.remove('show');
+  startChatter();
+}
+
+// ambient "someone is talking" highlight among unmuted people
+function startChatter(){
+  clearInterval(talkTimer);
+  talkTimer=setInterval(()=>{
+    if(picking)return;
+    tiles.forEach(t=>t.el.classList.remove('talking'));
+    const live=tiles.filter(t=>!t.muted);
+    if(live.length){const t=live[Math.floor(Math.random()*live.length)];t.el.classList.add('talking');}
+  },1400);
+}
+
+function pick(){
+  if(picking||!tiles.length)return;
+  picking=true;pickBtn.disabled=true;
+  clearInterval(talkTimer);
+  tiles.forEach(t=>t.el.classList.remove('talking','picked','scan','dim'));
+  scribeEl.classList.remove('show');
+  const target=Math.floor(Math.random()*tiles.length);
+  let i=Math.floor(Math.random()*tiles.length),steps=0;
+  const total=tiles.length*2+6+target;
+  function hop(){
+    tiles.forEach(t=>t.el.classList.remove('scan'));
+    i=(i+1)%tiles.length;
+    tiles[i].el.classList.add('scan');
+    steps++;
+    if(steps>=total && i===target){land(target);return;}
+    setTimeout(hop,60+Math.pow(steps/total,3)*230);
+  }
+  hop();
+}
+
+function land(idx){
+  tiles.forEach((t,j)=>{t.el.classList.remove('scan');if(j!==idx)t.el.classList.add('dim');});
+  const t=tiles[idx];
+  const seed=hash(t.name);
+  t.el.querySelector('.reaction').textContent=REACTIONS[seed%REACTIONS.length];
+  t.el.classList.add('picked');
+  showScribe(t.name);
+  picking=false;pickBtn.disabled=false;
+  const winName=t.name;
+  if(removeChk.checked){
+    setTimeout(()=>{
+      const ta=document.getElementById('names');
+      ta.value=ta.value.split('\n').filter(s=>s.trim()!==winName).join('\n');
+      build();
+    },2200);
+  }else{
+    setTimeout(()=>{tiles.forEach(x=>x.el.classList.remove('dim'));startChatter();},2600);
+  }
+}
+
+// meeting clock
+let secs=0;setInterval(()=>{secs++;const m=String(Math.floor(secs/60)).padStart(2,'0'),s=String(secs%60).padStart(2,'0');document.getElementById('clock').textContent=m+':'+s;},1000);
+
+pickBtn.addEventListener('click',pick);
+document.getElementById('load').addEventListener('click',build);
+document.getElementById('reset').addEventListener('click',()=>{document.getElementById('names').value='Ava\nLiam\nNoah\nEmma\nOliver\nSophia\nMason\nIsabella\nEthan\nMia';build();});
+
+build();
+</script>
+</body>
+</html>
