@@ -37,7 +37,8 @@
   }
   .topbar{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;color:var(--dust);font-size:13px}
   .rec{display:flex;align-items:center;gap:6px}
-  .rec .dot{width:9px;height:9px;border-radius:50%;background:var(--mute);box-shadow:0 0 8px var(--mute);animation:blink 1.4s infinite}
+  .rec .dot{width:9px;height:9px;border-radius:50%;background:var(--mute);box-shadow:0 0 8px var(--mute)}
+  body.live .rec .dot{animation:blink 1.4s infinite}
   @keyframes blink{50%{opacity:.35}}
   .topbar .clock{margin-left:auto;font-family:'Space Mono',monospace}
 
@@ -56,9 +57,6 @@
   .mic{width:13px;height:13px;flex:0 0 auto;position:relative}
   .mic svg{width:13px;height:13px;display:block}
   .badge{position:absolute;top:6px;right:6px;font-size:10px;font-family:'Space Mono',monospace;background:rgba(0,0,0,.5);padding:2px 6px;border-radius:6px;color:var(--dust);opacity:0;transition:opacity .2s}
-  .tile.talking{border-color:var(--live);box-shadow:0 0 0 1px var(--live),0 0 16px rgba(63,191,127,.35)}
-  .tile.talking .face{animation:bob .5s ease-in-out infinite alternate}
-  @keyframes bob{to{transform:scale(1.06)}}
 
   .tile.scan{border-color:var(--ring);box-shadow:0 0 18px rgba(45,140,255,.5);transform:scale(1.03)}
   .tile.picked{border-color:var(--pick);box-shadow:0 0 0 2px var(--pick),0 0 30px rgba(255,180,63,.6);transform:scale(1.06);z-index:3}
@@ -129,10 +127,10 @@
   <div class="picked-row" id="pickedRow"></div>
 
   <div class="controlbar" id="controls" style="display:none">
-    <button class="pick" id="pick">🎯 Pick next</button>
+    <button class="pick" id="pick">🎯 Who can help today?</button>
     <div class="opts">
       <span>On the call: <span class="count" id="count">0</span></span>
-      <label class="chk"><input type="checkbox" id="remove" checked> Drop after picking</label>
+      <label class="chk"><input type="checkbox" id="remove"> Drop after picking</label>
     </div>
   </div>
 
@@ -150,8 +148,7 @@ var THEMES = [
       "Breaking news: {n} has been elected Chief Documentation Officer!",
       "{n}, if it's not in your notes, it never happened!",
       "The ink is strong with you, {n} \u2014 scribe mode: ON!",
-      "{n}, warm up those typing fingers \u2014 it's minutes o'clock!",
-      "Fate has spoken, {n} \u2014 the action items are yours to capture!",
+      "{n}, warm up those typing fingers \u2014 it's minutes o'clock!",      
       "{n}, you're the official memory of this meeting. No pressure!",
       "All hail {n}, keeper of the sacred meeting notes!",
       "{n}, channel your inner court reporter \u2014 every word counts!",
@@ -257,7 +254,7 @@ var micOff = '<svg viewBox="0 0 24 24" fill="none" stroke="#e8574a" stroke-width
 /* ---------- State ---------- */
 var roster = NAMES.slice();   // people still in the running
 var donePicked = [];          // people already picked
-var tiles = [], picking = false, talkTimer;
+var tiles = [], picking = false;
 
 function drawPicked(){
   pickedRow.innerHTML = donePicked.map(function(n, i){ return '<span>' + (i + 1) + '. ' + escapeHtml(n) + '</span>'; }).join('');
@@ -280,25 +277,13 @@ function build(keepMessage){
   });
   countEl.textContent = tiles.length;
   if (!keepMessage) scribeEl.classList.remove('show');
-  startChatter();
-}
-
-// ambient "someone is talking" highlight among unmuted people
-function startChatter(){
-  clearInterval(talkTimer);
-  talkTimer = setInterval(function(){
-    if (picking) return;
-    tiles.forEach(function(t){ t.el.classList.remove('talking'); });
-    var live = tiles.filter(function(t){ return !t.muted; });
-    if (live.length){ live[Math.floor(Math.random() * live.length)].el.classList.add('talking'); }
-  }, 1400);
 }
 
 function pick(){
   if (picking || !tiles.length) return;
+  startMeeting();
   picking = true; pickBtn.disabled = true;
-  clearInterval(talkTimer);
-  tiles.forEach(function(t){ t.el.classList.remove('talking','picked','scan','dim'); });
+  tiles.forEach(function(t){ t.el.classList.remove('picked','scan','dim'); });
   scribeEl.classList.remove('show');
   var target = Math.floor(Math.random() * tiles.length);
   var i = Math.floor(Math.random() * tiles.length), steps = 0;
@@ -335,17 +320,22 @@ function land(idx){
     }, 2200);
   } else {
     picking = false; pickBtn.disabled = false;
-    setTimeout(function(){ tiles.forEach(function(x){ x.el.classList.remove('dim'); }); startChatter(); }, 2600);
+    setTimeout(function(){ tiles.forEach(function(x){ x.el.classList.remove('dim'); }); }, 2600);
   }
 }
 
-// meeting clock
-var secs = 0;
-setInterval(function(){
-  secs++;
-  var m = String(Math.floor(secs / 60)).padStart(2,'0'), s = String(secs % 60).padStart(2,'0');
-  document.getElementById('clock').textContent = m + ':' + s;
-}, 1000);
+// meeting clock: starts on the first click, so nothing moves before that
+var secs = 0, started = false;
+function startMeeting(){
+  if (started) return;
+  started = true;
+  document.body.classList.add('live');
+  setInterval(function(){
+    secs++;
+    var m = String(Math.floor(secs / 60)).padStart(2,'0'), s = String(secs % 60).padStart(2,'0');
+    document.getElementById('clock').textContent = m + ':' + s;
+  }, 1000);
+}
 
 /* ---------- Start ---------- */
 if (NAMES.length < 2){
