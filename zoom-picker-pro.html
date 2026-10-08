@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Standup — Random Scribe Picker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono&display=swap');
+
+  :root{
+    --app:#1a1a1e;
+    --app-2:#242429;
+    --tile:#2b2b31;
+    --tile-2:#34343b;
+    --bar:#111114;
+    --ink:#f2f2f5;
+    --dust:#9a9aa6;
+    --live:#3fbf7f;
+    --mute:#e8574a;
+    --pick:#ffb43f;
+    --ring:#2d8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--app);color:var(--ink);font-family:'Inter',sans-serif;min-height:100vh;
+    display:flex;flex-direction:column;align-items:center;padding:20px 14px 40px;overflow-x:hidden;
+  }
+  header{text-align:center;margin-bottom:8px}
+  .eyebrow{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--dust)}
+  h1{font-size:clamp(26px,5.5vw,42px);font-weight:700;letter-spacing:-.02em}
+  h1 span{color:var(--ring)}
+  .sub{color:var(--dust);font-size:14px;margin-top:2px}
+
+  .meeting{
+    width:min(760px,96vw);background:var(--app-2);border-radius:16px;padding:14px;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);border:1px solid #34343b;
+  }
+  .topbar{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;color:var(--dust);font-size:13px}
+  .rec{display:flex;align-items:center;gap:6px}
+  .rec .dot{width:9px;height:9px;border-radius:50%;background:var(--mute);box-shadow:0 0 8px var(--mute);animation:blink 1.4s infinite}
+  @keyframes blink{50%{opacity:.35}}
+  .topbar .clock{margin-left:auto;font-family:'Space Mono',monospace}
+
+  .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .tile{
+    position:relative;aspect-ratio:4/3;border-radius:12px;overflow:hidden;
+    background:var(--tile);border:3px solid transparent;transition:border-color .2s,transform .25s,box-shadow .25s;
+  }
+  .avatar{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .face{width:52px;height:52px;border-radius:50%;position:relative;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff;transition:transform .3s}
+  .namebar{
+    position:absolute;left:6px;bottom:6px;display:flex;align-items:center;gap:5px;
+    background:rgba(0,0,0,.55);padding:3px 8px;border-radius:7px;font-size:12px;font-weight:500;max-width:calc(100% - 12px);
+  }
+  .namebar .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mic{width:13px;height:13px;flex:0 0 auto;position:relative}
+  .mic svg{width:13px;height:13px;display:block}
+  .badge{position:absolute;top:6px;right:6px;font-size:10px;font-family:'Space Mono',monospace;background:rgba(0,0,0,.5);padding:2px 6px;border-radius:6px;color:var(--dust);opacity:0;transition:opacity .2s}
+  .tile.talking{border-color:var(--live);box-shadow:0 0 0 1px var(--live),0 0 16px rgba(63,191,127,.35)}
+  .tile.talking .face{animation:bob .5s ease-in-out infinite alternate}
+  @keyframes bob{to{transform:scale(1.06)}}
+
+  .tile.scan{border-color:var(--ring);box-shadow:0 0 18px rgba(45,140,255,.5);transform:scale(1.03)}
+  .tile.picked{border-color:var(--pick);box-shadow:0 0 0 2px var(--pick),0 0 30px rgba(255,180,63,.6);transform:scale(1.06);z-index:3}
+  .tile.picked .badge{opacity:1;color:var(--pick);background:rgba(0,0,0,.65)}
+  .tile.dim{opacity:.4;filter:saturate(.5)}
+  .reaction{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);font-size:34px;z-index:4;
+    transition:transform .4s cubic-bezier(.34,1.56,.64,1);
+  }
+  .tile.picked .reaction{transform:translate(-50%,-140%) scale(1)}
+
+  .scribe{width:min(760px,96vw);margin-top:16px;text-align:center;min-height:54px;display:flex;align-items:center;justify-content:center}
+  .scribe .msg{
+    opacity:0;transform:translateY(10px) scale(.96);transition:opacity .5s,transform .5s cubic-bezier(.2,.9,.3,1.2);
+    font-size:clamp(15px,3.2vw,21px);font-weight:500;line-height:1.4;padding:13px 22px;border-radius:14px;
+    background:var(--tile-2);border:1px solid var(--pick);box-shadow:0 8px 24px rgba(0,0,0,.4)
+  }
+  .scribe .msg.show{opacity:1;transform:translateY(0) scale(1)}
+  .scribe .msg b{color:var(--pick);font-weight:700}
+
+  .controlbar{
+    width:min(760px,96vw);margin-top:14px;background:var(--bar);border-radius:14px;
+    padding:12px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;
+    border:1px solid #2a2a30;
+  }
+  .pick{
+    background:var(--ring);color:#fff;border:none;border-radius:10px;padding:13px 32px;
+    font-family:'Inter';font-weight:600;font-size:15px;cursor:pointer;transition:transform .1s,background .15s;
+    box-shadow:0 4px 14px rgba(45,140,255,.4)
+  }
+  .pick:hover{background:#1f7be8}
+  .pick:active{transform:scale(.96)}
+  .pick:disabled{opacity:.5;cursor:not-allowed}
+  .opts{display:flex;gap:14px;align-items:center;color:var(--dust);font-size:13px;flex-wrap:wrap;justify-content:center}
+  label.chk{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .count{font-family:'Space Mono',monospace;color:var(--live)}
+
+  .picked-row{width:min(760px,96vw);margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:0}
+  .picked-row span{background:var(--tile-2);border:1px solid #3a3a42;border-radius:999px;padding:4px 12px;font-size:12px;color:var(--dust)}
+  .help{width:min(760px,96vw);background:var(--app-2);border:1px solid #34343b;border-radius:14px;padding:18px 20px;line-height:1.6;font-size:14px;color:var(--dust);display:none}
+  .help strong{color:var(--ink)}
+  .help code{font-family:'Space Mono',monospace;font-size:12px;color:var(--pick);word-break:break-all}
+</style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Random Picker</div>
+    <h1 id="title">Random <span>picker</span></h1>
+    <div class="sub" id="sub">Everyone's on the call. Pick who goes next.</div>
+  </header>
+
+  <div class="help" id="setupHelp">
+    <p><strong>No names provided.</strong> Pass at least two names (and an optional purpose) in the URL, for example:</p>
+    <p><code>zoom-picker.html?names=Ann,Ben,Cara&amp;purpose=Meeting Notes Taker</code></p>
+  </div>
+
+  <div class="meeting" id="meeting" style="display:none">
+    <div class="topbar">
+      <span class="rec"><span class="dot"></span>Recording</span>
+      <span id="mtitle">Random Picker</span>
+      <span class="clock" id="clock">00:00</span>
+    </div>
+    <div class="gallery" id="gallery"></div>
+  </div>
+
+  <div class="scribe"><div class="msg" id="scribe"></div></div>
+
+  <div class="picked-row" id="pickedRow"></div>
+
+  <div class="controlbar" id="controls" style="display:none">
+    <button class="pick" id="pick">🎯 Pick next</button>
+    <div class="opts">
+      <span>On the call: <span class="count" id="count">0</span></span>
+      <label class="chk"><input type="checkbox" id="remove" checked> Drop after picking</label>
+    </div>
+  </div>
+
+<script>
+(function(){
+/* ---------- Purpose-themed announcement sets (same as spin-wheel-pro.html) ---------- */
+var THEMES = [
+  { match:/note|minute|scribe|recap/i, emoji:"\uD83D\uDCDD", phrases:[
+      "{n}, grab your pen \u2014 you're today's scribe!",
+      "The wheel says {n} takes the notes!",
+      "History will remember this meeting, {n}... because you're writing it down!",
+      "Congrats {n}, official minute-keeper of the day!",
+      "{n}, your keyboard is the chosen one \u2014 notes duty!",
+      "{n}, today the meeting speaks through your fingertips!",
+      "Breaking news: {n} has been elected Chief Documentation Officer!",
+      "{n}, if it's not in your notes, it never happened!",
+      "The ink is strong with you, {n} \u2014 scribe mode: ON!",
+      "{n}, warm up those typing fingers \u2014 it's minutes o'clock!",
+      "Fate has spoken, {n} \u2014 the action items are yours to capture!",
+      "{n}, you're the official memory of this meeting. No pressure!",
+      "All hail {n}, keeper of the sacred meeting notes!",
+      "{n}, channel your inner court reporter \u2014 every word counts!",
+      "Plot twist: {n} is today's narrator. Write it all down!"
+  ]},
+  { match:/coffee|chat|watercooler|social/i, emoji:"\u2615", phrases:[
+      "{n}, coffee's on you \u2014 time for a chat!",
+      "The beans have spoken \u2014 {n}, let's talk!",
+      "{n}, you're brewing today's conversation!",
+      "Espresso yourself, {n} \u2014 it's your coffee chat!",
+      "{n}, pull up a mug \u2014 the floor is yours!"
+  ]},
+  { match:/status|standup|stand-up|update|progress/i, emoji:"\uD83C\uDFA4", phrases:[
+      "{n}, the stage is yours \u2014 status time!",
+      "The wheel demands an update, {n}!",
+      "{n}, tell us what's shipping!",
+      "Standup spotlight on {n}!",
+      "{n}, give us the good, the bad, and the blocked!"
+  ]},
+  { match:/demo|showcase|show and tell|show-and-tell/i, emoji:"\uD83C\uDFAC", phrases:[
+      "{n}, roll the demo \u2014 you're on!",
+      "Lights, camera, {n} \u2014 show us what you've got!",
+      "The wheel wants a show, {n}!",
+      "{n}, time to steal the spotlight with your demo!"
+  ]},
+  { match:/retro|review/i, emoji:"\uD83E\uDE9E", phrases:[
+      "{n}, kick off the retro \u2014 what went well?",
+      "The wheel of reflection chooses {n}!",
+      "{n}, your hot take goes first!",
+      "Retro time, {n} \u2014 no holding back!"
+  ]}
+];
+var GENERIC = { emoji:"\uD83C\uDF89", phrases:[
+    "{n}, you're up \u2014 {p} awaits!",
+    "The wheel picked {n} for {p}!",
+    "Destiny says: {n} does {p}!",
+    "Spotlight's on {n} \u2014 time for {p}!",
+    "{n}, the honor of {p} is all yours!"
+]};
+var PLAIN = { emoji:"\uD83C\uDF89", phrases:[
+    "{n}, the mic is yours!",
+    "The wheel has spoken \u2014 {n}, take it away!",
+    "Spotlight's on you, {n}!",
+    "{n}, the floor is all yours!",
+    "Drumroll... it's {n}!"
+]};
+
+/* ---------- Read URL parameters (same logic as spin-wheel-pro.html) ---------- */
+var params = new URLSearchParams(location.search);
+var PURPOSE = (params.get("purpose") || "").trim();
+var theme = PLAIN;
+if (PURPOSE){
+  theme = GENERIC;
+  for (var t = 0; t < THEMES.length; t++){
+    if (THEMES[t].match.test(PURPOSE)){ theme = THEMES[t]; break; }
+  }
+}
+var rawNames = params.get("names") || "";
+try { rawNames = decodeURIComponent(rawNames); } catch(e) {}
+var NAMES = rawNames.split(/,|\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+
+/* ---------- Elements ---------- */
+var gallery = document.getElementById('gallery'), pickBtn = document.getElementById('pick');
+var countEl = document.getElementById('count'), removeChk = document.getElementById('remove');
+var scribeEl = document.getElementById('scribe'), pickedRow = document.getElementById('pickedRow');
+
+var BG = ['#5b8def','#e8574a','#3fbf8f','#c264d6','#f2a134','#4fb0c9','#e8657f','#7c6bd6','#d98c3f','#4a9d8e'];
+var REACTIONS = ['\uD83D\uDE4B','\uD83D\uDE05','\u270D\uFE0F','\uD83D\uDC40','\uD83E\uDEE1','\uD83D\uDE33','\uD83C\uDF89'];
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+/* ---------- Titles ---------- */
+var titleEl = document.getElementById('title'), subEl = document.getElementById('sub'), mtitleEl = document.getElementById('mtitle');
+if (PURPOSE){
+  titleEl.innerHTML = theme.emoji + ' <span>' + escapeHtml(PURPOSE) + '</span>';
+  subEl.textContent = "Who's next for: " + PURPOSE;
+  mtitleEl.textContent = PURPOSE;
+  document.title = PURPOSE + ' - picker';
+} else {
+  document.title = 'Random picker';
+}
+
+/* ---------- Announcements: random, no repeats until all phrases used ---------- */
+var phrasePool = [];
+function announceHtml(name){
+  if (!phrasePool.length) phrasePool = theme.phrases.map(function(_, i){ return i; });
+  var p = phrasePool.splice(Math.floor(Math.random() * phrasePool.length), 1)[0];
+  var tpl = escapeHtml(theme.phrases[p]);
+  tpl = tpl.split('{p}').join(escapeHtml(PURPOSE));
+  return theme.emoji + ' ' + tpl.split('{n}').join('<b>' + escapeHtml(name) + '</b>');
+}
+function showMessage(html){
+  scribeEl.innerHTML = html;
+  scribeEl.classList.remove('show'); void scribeEl.offsetWidth; scribeEl.classList.add('show');
+}
+
+function hash(str){ var x = 0; for (var i = 0; i < str.length; i++) x = (x * 31 + str.charCodeAt(i)) >>> 0; return x; }
+function initials(name){ var p = name.trim().split(/\s+/); return ((p[0] && p[0][0] || '') + (p[1] && p[1][0] || '')).toUpperCase() || name[0].toUpperCase(); }
+
+var micOn = '<svg viewBox="0 0 24 24" fill="none" stroke="#3fbf7f" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>';
+var micOff = '<svg viewBox="0 0 24 24" fill="none" stroke="#e8574a" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/><line x1="4" y1="4" x2="20" y2="20"/></svg>';
+
+/* ---------- State ---------- */
+var roster = NAMES.slice();   // people still in the running
+var donePicked = [];          // people already picked
+var tiles = [], picking = false, talkTimer;
+
+function drawPicked(){
+  pickedRow.innerHTML = donePicked.map(function(n, i){ return '<span>' + (i + 1) + '. ' + escapeHtml(n) + '</span>'; }).join('');
+}
+
+function build(keepMessage){
+  gallery.innerHTML = ''; tiles = [];
+  roster.forEach(function(name){
+    var seed = hash(name);
+    var bg = BG[seed % BG.length];
+    var muted = (seed >> 4) % 3 === 0; // some people muted
+    var el = document.createElement('div'); el.className = 'tile';
+    el.innerHTML =
+      '<div class="avatar"><div class="face" style="background:' + bg + '">' + escapeHtml(initials(name)) + '</div></div>' +
+      '<div class="reaction"></div>' +
+      '<div class="badge">PICKED</div>' +
+      '<div class="namebar"><span class="mic">' + (muted ? micOff : micOn) + '</span><span class="nm">' + escapeHtml(name) + '</span></div>';
+    gallery.appendChild(el);
+    tiles.push({ name: name, el: el, muted: muted });
+  });
+  countEl.textContent = tiles.length;
+  if (!keepMessage) scribeEl.classList.remove('show');
+  startChatter();
+}
+
+// ambient "someone is talking" highlight among unmuted people
+function startChatter(){
+  clearInterval(talkTimer);
+  talkTimer = setInterval(function(){
+    if (picking) return;
+    tiles.forEach(function(t){ t.el.classList.remove('talking'); });
+    var live = tiles.filter(function(t){ return !t.muted; });
+    if (live.length){ live[Math.floor(Math.random() * live.length)].el.classList.add('talking'); }
+  }, 1400);
+}
+
+function pick(){
+  if (picking || !tiles.length) return;
+  picking = true; pickBtn.disabled = true;
+  clearInterval(talkTimer);
+  tiles.forEach(function(t){ t.el.classList.remove('talking','picked','scan','dim'); });
+  scribeEl.classList.remove('show');
+  var target = Math.floor(Math.random() * tiles.length);
+  var i = Math.floor(Math.random() * tiles.length), steps = 0;
+  var total = tiles.length * 2 + 6 + target;
+  function hop(){
+    tiles.forEach(function(t){ t.el.classList.remove('scan'); });
+    i = (i + 1) % tiles.length;
+    tiles[i].el.classList.add('scan');
+    steps++;
+    if (steps >= total && i === target){ land(target); return; }
+    setTimeout(hop, 60 + Math.pow(steps / total, 3) * 230);
+  }
+  hop();
+}
+
+function land(idx){
+  tiles.forEach(function(t, j){ t.el.classList.remove('scan'); if (j !== idx) t.el.classList.add('dim'); });
+  var t = tiles[idx];
+  var seed = hash(t.name);
+  t.el.querySelector('.reaction').textContent = REACTIONS[seed % REACTIONS.length];
+  t.el.classList.add('picked');
+  var html = announceHtml(t.name);
+  var drop = removeChk.checked;
+  var last = drop && roster.length === 1;
+  if (last) html += ' That\u2019s a wrap \u2014 everyone\u2019s had a turn!';
+  showMessage(html);
+  if (drop){
+    donePicked.push(t.name); drawPicked();
+    setTimeout(function(){
+      roster.splice(idx, 1);
+      build(true);
+      picking = false;
+      pickBtn.disabled = roster.length === 0;
+    }, 2200);
+  } else {
+    picking = false; pickBtn.disabled = false;
+    setTimeout(function(){ tiles.forEach(function(x){ x.el.classList.remove('dim'); }); startChatter(); }, 2600);
+  }
+}
+
+// meeting clock
+var secs = 0;
+setInterval(function(){
+  secs++;
+  var m = String(Math.floor(secs / 60)).padStart(2,'0'), s = String(secs % 60).padStart(2,'0');
+  document.getElementById('clock').textContent = m + ':' + s;
+}, 1000);
+
+/* ---------- Start ---------- */
+if (NAMES.length < 2){
+  document.getElementById('setupHelp').style.display = 'block';
+} else {
+  document.getElementById('meeting').style.display = '';
+  document.getElementById('controls').style.display = 'flex';
+  pickBtn.addEventListener('click', pick);
+  build();
+}
+})();
+</script>
+<!--
+USAGE
+=====
+This page is driven entirely by URL parameters:
+
+  zoom-picker.html?names=Ann,Ben,Cara&purpose=Meeting Notes Taker
+
+  names    (required)  comma-separated list, at least 2 names
+  purpose  (optional)  what the picked person will do; shown as the page title
+                       and used to choose the announcement style
+
+Announcement style (identical to spin-wheel-pro.html):
+  - contains "note/minute/scribe/recap" -> note-taking phrases
+  - contains "coffee/chat"              -> coffee chat phrases
+  - contains "status/standup/update"    -> status update phrases
+  - contains "demo/showcase"            -> demo phrases
+  - contains "retro/review"             -> retrospective phrases
+  - anything else                       -> generic phrases that include the purpose
+  - no purpose given                    -> classic neutral phrases
+-->
+</body>
+</html>
